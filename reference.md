@@ -1,16 +1,17 @@
 
+
 Message Structure
 -----------------
 
 The simplest message type is the Direct Message:
 
-  	1 byte - binary packet marker/flags (0x00)
+  	1 byte - binary packet marker/flags
   	  bit 0 - please respond
   	  	  1 - answer
   	      2 - fragment
   	      3 \  00 - middle fragment  01 - first fragment
   	      4 /  10 - last fragment    11 - abort fragment
-  	      5 - 
+  	      5 - stream
   	      6 - error
   	      7 - set to 1 (binary packet marker)
   	1 byte - padding
@@ -36,6 +37,173 @@ text header:
 	  l=<length> - message-length (includes EOL)
 	  b - message is encoded (base64)
 
+Stream Message:
+
+	4 bytes: stream header (0xa0ssssss)
+	4 bytes: length
+
+Stream message (text):
+
+  sNNNNN length bytes...
+
+Packet:
+	byte: btttxlll
+	  b - set to 1 for binary packet
+	  ttt - type
+	    000 - unicast no-reply
+	    001 - unicast with-reply
+	    010 - broadcast
+	    011 - error (reply only)
+	    100 - special, xlll = 
+	    	0x0 - destination select
+	    	0x1 - message id
+
+
+Select Source:
+
+	1 byte - 0xc0
+	1-4 bytes - destination
+
+Select Destination:
+
+	1 byte - 0xc0
+	1-4 bytes - destination
+
+Set Message ID (only for next message):
+
+	1 byte - 0xc1
+	1-4 bytes - id
+
+Error flag (only for next message):
+
+	1 byte - 0xc2
+
+Set Fragment ID (only for next message):
+
+	1 byte - 0xc3, c4, c5, c6, 
+	1-4 bytes - id
+
+
+Message:
+	bsrxllll
+	10rxllll
+		llll - 4 bits of packet length
+		x - length extension: follow with `xlllllll` as needed
+		r - reply requested
+		s - 0 for message, 1 for special (see below)
+		b - 1 for binary packet
+
+Special:
+	bsmmtttt
+	11mmtttt
+		tttt - type
+		mm - multi-purpose
+		s - 1 (for special)
+		b - 1 (for binary)
+
+	type 1 - select source
+		mm - source size, 0-3 = 1-4 bytes
+
+	type 2 - select destination
+		mm - destination size, 0-3 = 1-4 bytes
+
+	type 3 - set message ID (next message only, reverts to 0)
+		mm - source size, 0-3 = 1-4 bytes
+
+
+	type 14 - error
+	type 15 - fragment
+		mm = normal/last/abort
+		follow with xiiiiiii as needed
+		Fragment IDs start at 0
+
+	0....... - text mode packet
+	1....... - binary mode packet
+	10rxllll - binary message
+	11000000 - 
+	11000001 - (C1) source
+	11000010 - (C2) destination
+
+	11000111 - (C7) reply to ID
+		follow with xiiiiiii as needed for ID #
+	11001100 - (CC) switch to text (character) mode
+	11001101 - (CD) message ID
+		follow with xiiiiiii as needed for ID #
+
+
+	1101.... - Dx, unused
+
+	1110.... - Ex, error
+		E0-E9 - error numbers
+		ED - message with error follows
+		EE - empty error
+	1111.... - Fx, fragment
+		F0-F9 - Fragment IDs 0-9 (0 always starts)
+
+		FA - fragment abort
+		FC - fragments continue
+			follow with xiiiiiii as needed for ID
+		FD - fragment data
+			no id (for duplex connections)
+		FE - fragments end
+			no id (for duplex connections)
+		FF - final fragment
+			follow with xiiiiiii as needed for ID
+
+			 coes  - continue, OK, end, start
+		1111 1110 - end
+		     1010 - abort
+		     1100 - continue
+
+
+
+Set mode:
+	
+	0x1110nnnn:
+		unicast no-reply
+		unicast with-reply
+		broadcast
+
+
+Text packets:
+
+0-32: reserved
+',',' ',TAB: whitespace
+'~n': Select source
+'@n': Select destination
+':': message follows
+'#[r]n': message id [reply flag]
+'!n': error flag/packet (0-9,e MUST be followed by EOL, no message)
+'?': want-reply flag
+'.': is-answer flag
+'%[ea]n': fragment [end, abort]
+'=': base64 encoded message follows
+'^': switch to binary mode (MUST be followed by EOL)
+
+
+
+  	1 byte - binary packet marker/flags
+  	  bit 0 - please respond
+  	  	  1 - answer
+  	      2 - fragment
+  	      3 \  00 - middle fragment  01 - first fragment
+  	      4 /  10 - last fragment    11 - abort fragment
+  	      5 - stream
+  	      6 - error
+  	      7 - set to 1 (binary packet marker)
+  	1 byte - padding
+
+    word - src-id
+    word - dest-id
+  	word - via-app
+  	dword - message-id
+  	dword - message-length, max 2^31 - 1
+    bytes - message body
+
+
+
+Direct Messages
+---------------
 
 App IDs are limited to 15 bits, allowing up to ~32,000 modules to be attached to 
 any given router. 
@@ -249,9 +417,18 @@ Depending on the OS, the router may need to do an extra copy of all data
 flowing through the link, but otherwise no processing at all is done on the
 data. The only way to terminate the stream is to close the file descriptor.
 
-
-
 There is a handshake that is performed to accomplish the conversion:
+
+	stream provide <key>
+
+When an app tries to open the stream, the provider receives a message from the
+connecting application. If the provider approves the connection, the stream is 
+formed, otherwise provider returns an error message which is passed on to the 
+app.
+
+	app1: stream <dstid> <key>
+	app2: stream <srcid> <key>
+	app2: stream <srcid> <key>
 
 This creates a new
 appID that represents the stream connection. Streams have the following
@@ -263,6 +440,34 @@ properties:
   * Streams can be bound to a particular pipe.
   * They remain open if the pipe used to establish the connection is closed
   * Separate appID makes 
+
+### connect
+
+
+### connect
+
+	list - pub/sub
+	fifo - distributor or concentrator (push/pull)
+
+
+
+
+	create pipe for user doriva
+	create pipe for app php
+	create portal /server/php for user php
+
+
+	grant open pipe /server/php to os user php
+	grant open pipe /server/php to os user php
+	grant exchange message to pipes /server/php,/server/httpd
+	grant exchange message to pipes /server/php,/server/httpd
+
+	create list /php/log for portal /server/php
+
+	create service parsedown with command "..."
+
+	create portal /service/parsedown for service
+	
 
 
 
