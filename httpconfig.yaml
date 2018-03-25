@@ -1,0 +1,99 @@
+router config
+
+listen:
+  - type: TCP
+    port: 80
+    export: connection
+  - type: SSL
+    port: 443
+    export: connection
+  - type: connection
+
+
+
+
+listen:
+  type: connection
+
+  protocol: http
+
+
+listen https * 443
+
+def-module:
+  tcp80:
+    module: tcp.listener
+    ip: all
+    port: 80, 8080
+  ssl443:
+    module: ssl.listener
+    port: 443
+    ip: all
+    cert: blah.pem
+    ca-cert: blah.crt
+    key: blah.pem
+  blacklist:
+    module: tcp.blacklist
+
+  http:
+    module: http.protocol
+
+  router:
+    module: http.router
+
+
+http-rules:
+  - match-path: /.*\.jpg|.*\.jpeg/
+    serve-existing-file-as: image/jpeg
+  - match-path: /.*\.php/
+    serve-as: application/php
+  - match-hostname: metalcoder.com
+    then:
+      - match-port: 80
+        redirect: https://{host}{path}{query}
+        finish: yes
+      # disallow access to any "hidden" file
+      # also if URL is malformed (does not start with '/')
+      - match-path: %.*/\..*|^[^/]%
+        status: 404
+        message: Oh no you din't
+        errlog: Nasty attempt to read {host}{path} denied
+      - match-file-in: /var/www/html/mainsite/app/wwwroot
+
+      - match-any: true
+        status: 404
+        message: 404 Not Found
+        # message-file: /var/www/html/mainsite/404.html
+  - 
+  - match-extension: php
+    open-with: php-handler
+    
+
+php-handler:
+  type: cgi
+  command: php {filename}
+
+
+
+
+
+
+message-flow:
+
+    httplogger
+    url-router
+
+
+
+  http-main:
+    http
+    url-router
+
+
+
+  tcp:
+    - all-80
+    - all-443
+
+
+          
